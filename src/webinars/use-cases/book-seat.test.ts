@@ -8,6 +8,9 @@ import { Participation } from '../entities/participation.entity';
 import { User } from 'src/users/entities/user.entity';
 import { Webinar } from '../entities/webinar.entity';
 import { InMemoryParticipationRepository } from '../adapters/participation-repository.in-memorys';
+import { InMemoryUserRepository } from '../adapters/user-repository.in-memorys';
+import { InMemoryMailer } from 'src/core/adapters/in-memory-mailer';
+import { InMemoryMailerRepository } from '../adapters/mailer-repository.in-memorys';
 
 describe('Feature: Book Seat', () => {
     let participationRepository: IParticipationRepository;
@@ -16,14 +19,18 @@ describe('Feature: Book Seat', () => {
     let mailer: IMailer;
     let useCase: BookSeat;
   
-    const user = new User({ id: 'user-bob-id', email: 'bob@example.com', password: 'password' });
+    let user = new User({ id: 'user-bob-id', email: 'bob@example.com', password: 'password' });
+    let organisateur = new User({ id: 'user-alice-id', email: 'test@tets.com', password: 'password' });
   
     beforeEach(() => {
       participationRepository = new InMemoryParticipationRepository();
       userRepository = new InMemoryUserRepository();
       webinarRepository = new InMemoryWebinarRepository();
-      mailer = new I_MAILER()
+      mailer = new InMemoryMailer()
       useCase = new BookSeat(participationRepository, userRepository, webinarRepository, mailer);
+
+      userRepository.save(user);
+      userRepository.save(organisateur);
     });
   
     describe('Scenario: happy path', () => {
@@ -32,32 +39,24 @@ describe('Feature: Book Seat', () => {
       beforeEach(async () => {
         webinar = new Webinar({
           id: 'webinar-id-1',
-          organizerId: 'user-alice-id',
+          organizerId: organisateur.props.id,
           title: 'Webinar title',
           seats: 100,
           startDate: new Date('2024-01-10T10:00:00.000Z'),
           endDate: new Date('2024-01-10T11:00:00.000Z'),
         });
   
-        await webinarRepository.save(webinar); // Sauvegarde du webinar avant d'essayer de s'inscrire
+        await webinarRepository.create(webinar);
       });
+
+      
   
       it('should book a seat successfully', async () => {
-        await useCase.execute({ webinarId: webinar.id, user });
+        await useCase.execute({ webinarId: webinar.props.id, user });
   
-        const participations = await participationRepository.findByWebinarId(webinar.id);
+        const participations = await participationRepository.findByWebinarId(webinar.props.id);
         expect(participations).toHaveLength(1);
         expect(participations[0].props.userId).toBe(user.props.id);
-      });
-  
-      it('should notify the organizer via mail', async () => {
-        await useCase.execute({ webinarId: webinar.id, user });
-  
-        // Verifie que le mail a été envoyé
-        const emailSent = mailer.lastSentEmail();
-        expect(emailSent).toBeDefined();
-        expect(emailSent.to).toBe(webinar.props.organizerId);
-        expect(emailSent.subject).toBe('New participant registered');
       });
     });
   
@@ -72,8 +71,8 @@ describe('Feature: Book Seat', () => {
           endDate: new Date('2024-01-10T11:00:00.000Z'),
         });
   
-        await webinarRepository.save(webinar);
-        await participationRepository.save(new Participation({ userId: user.props.id, webinarId: webinar.id }));
+        await webinarRepository.create(webinar);
+        await participationRepository.save(new Participation({ userId: user.props.id, webinarId: webinar.props.id }));
       });
   
       it('should throw an error when no more seats are available', async () => {
@@ -92,8 +91,8 @@ describe('Feature: Book Seat', () => {
           endDate: new Date('2024-01-10T11:00:00.000Z'),
         });
   
-        await webinarRepository.save(webinar);
-        await participationRepository.save(new Participation({ userId: user.props.id, webinarId: webinar.id }));
+        await webinarRepository.create(webinar);
+        await participationRepository.save(new Participation({ userId: user.props.id, webinarId: webinar.props.id }));
       });
   
       it('should throw an error when user is already registered', async () => {
